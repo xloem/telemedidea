@@ -16,6 +16,9 @@ add_library(ICA
 	libICA/src/matrix.c
 	libICA/src/svdcmp.c
 )
+target_include_directories(ICA PUBLIC
+	libICA/src
+)
 
 project(telemedidea)
 
