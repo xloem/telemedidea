@@ -2,12 +2,15 @@
 
 #include <opencv2/videoio.hpp>
 
+extern "C" {
 #include <libICA.h>
 #include <matrix.h>
+}
+
 class libICA {
 public:
   // X has a row for each time, and a column for each channel
-  libICA(cv::Mat const &X = {}, unsigned int compc = 0)
+  libICA(cv::Mat const &X, unsigned int compc = 0)
       : reserved_rows(0), cols(X.cols),
         compc(compc && compc <= cols ? compc : cols), _X(0),
         _K(mat_create(cols, compc)), _W(mat_create(compc, compc)),
@@ -15,11 +18,15 @@ public:
     setX(X);
   }
   ~libICA() {
-    mat_delete(_S, reserved_rows, cols);
+    if (0 != _S) {
+      mat_delete(_S, reserved_rows, cols);
+    }
     mat_delete(_A, compc, compc);
     mat_delete(_W, compc, compc);
     mat_delete(_K, cols, compc);
-    mat_delete(_X, reserved_rows, cols);
+    if (0 != _X) {
+      mat_delete(_X, reserved_rows, cols);
+    }
   }
 
   const cv::Mat_<double> X() { return {rows, cols, _X[0]}; }
@@ -73,10 +80,20 @@ int main(int argc, char *const *argv) {
     return -1;
   }
 
-  cv::Mat sequence;
-  while (true) {
-    cv::Mat frame;
+  libICA ica(cv::Mat_<double>(cap.get(cv::CAP_PROP_FRAME_COUNT), 3));
+
+  size_t frames = cap.get(cv::CAP_PROP_FRAME_COUNT);
+  cv::Mat sequence, frame;
+  std::cerr << "Loading frames ..." << std::endl;
+  for (size_t framenum = 0; framenum < frames; ++framenum) {
     cap >> frame;
-    std::cout << "mean of frame: " << cv::mean(frame) << std::endl;
+    auto mean = cv::mean(frame);
+    ica.X().row(framenum) = cv::Mat_<double>(mean, false);
+    if (0 == framenum % 16) {
+      std::cerr << (framenum * 100) / frames << "%: " << mean << "\r"
+                << std::flush;
+    }
   }
+
+  return 0;
 }
