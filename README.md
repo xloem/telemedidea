@@ -1,9 +1,9 @@
 
 Around 2012 I read an article in the newspaper that a chinese
 research student had made a way to read the human heartbeat
-with a videocamera.  I thought that was cool, and wanted to
-make the algorithm into a mobile phone app.  The research
-paper he wrote was cheap.
+with a videocamera at arbitrary distance.  I thought that was
+cool, and wanted to make the algorithm into a mobile phone
+app.  The research paper he wrote was cheap.
 
 Unfortunately, I was politically targeted and brainwashed
 around then, and for some reason the experiences, which
