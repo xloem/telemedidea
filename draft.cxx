@@ -12,9 +12,10 @@ public:
   // X has a row for each time, and a column for each channel
   libICA(cv::Mat const &X, unsigned int compc = 0)
       : reserved_rows(0), cols(X.cols),
-        compc(compc && compc <= cols ? compc : cols), _X(0),
-        _K(mat_create(cols, compc)), _W(mat_create(compc, compc)),
-        _A(mat_create(compc, compc)), _S(0) {
+        compc((compc && compc <= X.cols) ? compc : cols), _X(0),
+        _K(mat_create(cols, this->compc)),
+        _W(mat_create(this->compc, this->compc)),
+        _A(mat_create(this->compc, this->compc)), _S(0) {
     setX(X);
   }
   ~libICA() {
@@ -90,10 +91,11 @@ int main(int argc, char *const *argv) {
     auto mean = cv::mean(frame);
     ica.X().row(framenum) = cv::Mat_<double>(mean, false);
     if (0 == framenum % 16) {
-      std::cerr << (framenum * 100) / frames << "%: " << mean << "\r"
+      std::cerr << "\r" << (framenum * 100) / frames << "%: " << mean
                 << std::flush;
     }
   }
+  std::cerr << std::endl;
 
   return 0;
 }
