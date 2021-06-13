@@ -10,7 +10,14 @@ include_directories(
 	opencv/modules/videoio/include
 )
 
+project(libICA)
+add_library(ICA
+	libICA/src/libICA.c
+	libICA/src/matrix.c
+	libICA/src/svdcmp.c
+)
+
 project(telemedidea)
 
 add_executable(draft draft.cxx)
-target_link_libraries(draft opencv_videoio)
+target_link_libraries(draft opencv_videoio ICA)
