@@ -55,26 +55,25 @@ public:
     return _S;
   }
 
-  mat &X() { return _X; } // mixed
-  mat const &K() { return _K; } // prewhitening: S = (W * K_T * (X - center))_T
-  mat const &W() { return _W; } // unmixing, assumes whitened and centered
-  mat const &A() { return _A; } // mixing & unwhitening, does not recenter
-  mat const &S() { return _S; } // unmixed
+  mat &X() { return _X; }
+  mat const &K() { return _K; }
+  mat const &W() { return _W; }
+  mat const &A() { return _A; }
+  mat const &S() { return _S; }
   mat &mixed() { return X(); }
   mat const &unmixed() { return S(); }
-  // in libica, the unmixing matrix assumes prewhitening,
-  // i.e. unmixed = (unmixing * prewhitening.t() * (mixed - center)).t()
-  // where center is the means of the columns of mixed, the subtraction is per-row
+  // unmixing and mixing assume the data is centered, i.e. DC offset subtracted
   mat const &center() { return _center; }
   cv::MatExpr centered() { return X() - cv::Mat_<double>(_X.rows, 1, 1) * center(); }
-  // prewhitened and unmixing do not look accurate yet
-  cv::MatExpr prewhitened() { return (prewhitening().t() * centered().t()).t(); /* 3x3 x 3x903 */}
-  cv::MatExpr unmixing() { return W() * prewhitening().t(); }
+  cv::MatExpr prewhitened() { return centered() * prewhitening(); }
+  mat const &prewhitened_unmixing() { return W(); }
+  cv::MatExpr unmixing() { return prewhitening() * prewhitened_unmixing(); }
   mat const &prewhitening() { return K(); }
   mat const &mixing() { return A(); }
 
 private:
   mat _X, _K, _W, _A, _S;
+  // _center is really an extra DC column
   mat _center;
 };
 
@@ -270,17 +269,24 @@ int main(int argc, char *const *argv) {
   std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
   std::cout << "center = " << ica.center() << std::endl;
   std::cout << "mixed_centered, row 1 = " << ica.centered().row(0) << std::endl;
-  std::cout << "mixed_prewhitened, row 1 = " << ica.prewhitened().row(0) << std::endl;
+  //std::cout << "mixed_prewhitened, row 1 = " << ica.prewhitened().row(0) << std::endl;
+  //std::cout << "mixed_centered * prewhitening, row 1 = "
+  //          << (ica.centered() * ica.prewhitening()).row(0) << std::endl;
   std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
-  std::cout << "prewhitened * unmixing, row 1 = "
-            << (ica.prewhitened() * ica.unmixing()).row(0) << std::endl;
-  std::cout << "centered * unmixing, row 1 = "
+  //std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
+  //          << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0) << std::endl;
+  std::cout << "mixed_centered * unmixing, row 1 = "
             << (ica.centered() * ica.unmixing()).row(0) << std::endl;
   std::cout << "unmixed * mixing, row 1 = "
             << (ica.unmixed() * ica.mixing()).row(0) << std::endl;
-  //std::cout << "mixed * prewhitening * unmixing, row 1 = "
-  //          << (ica.mixed() * ica.prewhitening() * ica.unmixing()).row(0)
-  //          << std::endl;
+  std::cout << "mixed_centered * prewhitening * prewhitened_unmixing, row 1 = "
+            << (ica.centered() * ica.prewhitening() * ica.prewhitened_unmixing()).row(0)
+            << std::endl;
+  std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
+	    << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0)
+	    << std::endl;
+  std::cout << "mixing * unmixing = "
+            << ica.mixing() * ica.unmixing() << std::endl;
 
   /* the opencv matrix multiplication gets the same results as the libica one
   libICA::mat result(ica.mixing().rows, ica.unmixing().cols);
