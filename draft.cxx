@@ -10,74 +10,60 @@ extern "C" {
 class libICA {
 public:
   // X has a row for each time, and a column for each channel
-  libICA(cv::Mat const &X, unsigned int compc = 0)
-      : reserved_rows(0), cols(X.cols),
-        compc((compc && compc <= X.cols) ? compc : cols), _X(0),
-        _K(mat_create(cols, this->compc)),
-        _W(mat_create(this->compc, this->compc)),
-        _A(mat_create(this->compc, this->compc)), _S(0) {
-    setX(X);
-  }
-  ~libICA() {
-    if (0 != _S) {
-      mat_delete(_S, reserved_rows, cols);
-    }
-    mat_delete(_A, compc, compc);
-    mat_delete(_W, compc, compc);
-    mat_delete(_K, cols, compc);
-    if (0 != _X) {
-      mat_delete(_X, reserved_rows, cols);
-    }
-  }
+  libICA(cv::Mat const &X, unsigned int components = 0)
+      : _X(X),
+        _K(_X.cols, components ? components : _X.cols),
+        _W(_K.cols, _K.cols),
+        _A(_K.cols, _K.cols),
+        _S(_X.rows, _X.cols) { }
+  ~libICA() { }
 
-  const cv::Mat_<double> X() { return {rows, cols, _X[0]}; oops matrix rows are noncontinuous, see destructor }
-  const cv::Mat_<double> K() { return {cols, compc, _K[0]}; }
-  const cv::Mat_<double> W() { return {compc, compc, _W[0]}; }
-  const cv::Mat_<double> A() { return {compc, compc, _A[0]}; }
-  const cv::Mat_<double> S() { return {rows, cols, _S[0]}; }
-  const cv::Mat_<double> mixed() { return X(); }
-  const cv::Mat_<double> unmixed() { return S(); }
-  const cv::Mat_<double> mixing() { return A(); }
-  const cv::Mat_<double> unmixing() { return W(); }
-  const cv::Mat_<double> whitening() { return K(); }
+  class mat : public cv::Mat_<double>
+  {
+  public:
+    using cv::Mat_<double>::Mat_;
 
-  void setX(cv::Mat_<double> const &X) {
-    if (X.cols != cols) {
-      throw std::logic_error("column count differs");
-    }
-    if (X.rows > reserved_rows) {
-      if (_X) {
-        matrix rows are noncontinuous need our own mat_delete, maybe wrap cv::Mat_<double>
-        mat_delete(_X, reserved_rows, cols);
+    operator double**() {
+      if (rowptrs.size() != rows) {
+        rowptrs.resize(rows);
+        rowptrs[0] = 0;
       }
-      if (_S) {
-        mat_delete(_S, reserved_rows, cols);
+      if (rowptrs[0] != reinterpret_cast<double *>(ptr(0))) {
+        for (size_t w = 0; w < rows; w ++) {
+          rowptrs[w] = reinterpret_cast<double *>(ptr(w));
+        }
       }
-      reserved_rows = X.rows;
-      matrix rows are noncontinuous need our own mat_create, maybe wrap cv::Mat_<double>
-      _X = mat_create(reserved_rows, cols);
-      _S = mat_create(reserved_rows, cols);
+      return rowptrs.data();
     }
-    rows = X.rows;
-    cv::Mat_<double> const __X = this->X();
-    const_cast<cv::Mat_<double> &>(__X) = X;
-  }
+  private:
+    std::vector<double *> rowptrs;
+  };
 
-  cv::Mat_<double> calculate(cv::Mat_<double> const &X = {}) {
+  mat const & calculate(cv::Mat_<double> const &X = {}) {
     if (X.rows) {
-      setX(X);
+      if (X.cols != _X.cols) {
+        throw std::logic_error("column count differs");
+      }
+      _X = X;
+      _S.resize(_X.rows, _X.cols);
     }
-    fastICA(_X, rows, cols, compc, _K, _W, _A, _S);
-    return S();
+    fastICA(_X, _X.rows, _X.cols, _K.cols, _K, _W, _A, _S);
+    return _S;
   }
+
+  mat       & X() { return _X; }
+  mat const & K() { return _K; }
+  mat const & W() { return _W; }
+  mat const & A() { return _A; }
+  mat const & S() { return _S; }
+  mat       & mixed() { return X(); }
+  mat const & unmixed() { return S(); }
+  mat const & mixing() { return A(); }
+  mat const & unmixing() { return W(); }
+  mat const & prewhitening() { return K(); }
 
 private:
-  int reserved_rows, rows, cols, compc;
-  mat _X; // contiguous rows x cols // input mixed data, rows = time
-  mat _K; // contiguous compc x cols
-  mat _W; // contiguous compc x compc
-  mat _A; // contiguous compc x compc
-  mat _S; // contiguous rows x cols // unmixed data, rows = time
+  mat _X, _K, _W, _A, _S;
 };
 
 int main(int argc, char *const *argv) {
@@ -107,7 +93,33 @@ int main(int argc, char *const *argv) {
 
   ica.calculate();
 
+
   std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing() << std::endl;
+  std::cout << "mixing * T(unmixing) = " << ica.mixing() * ica.unmixing().t() << std::endl;
+  std::cout << "T(mixing) * unmixing = " << ica.mixing().t() * ica.unmixing() << std::endl;
+  std::cout << "T(mixing) * T(unmixing) = " << ica.mixing().t() * ica.unmixing().t() << std::endl;
+
+  std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
+  std::cout << "mixed * prewhitening, row 1 = " << (ica.mixed() * ica.prewhitening()).row(0) << std::endl;
+  std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
+  std::cout << "mixed * unmixing, row 1 = " << (ica.mixed() * ica.unmixing()).row(0) << std::endl;
+  std::cout << "unmixed * mixing, row 1 = " << (ica.unmixed() * ica.mixing()).row(0) << std::endl;
+  std::cout << "mixed * prewhitening * unmixing, row 1 = " << (ica.mixed() * ica.prewhitening() * ica.unmixing()).row(0) << std::endl;
+
+  /* the opencv matrix multiplication gets the same results as the libica one
+  libICA::mat result(ica.mixing().rows, ica.unmixing().cols);
+  mat_mult(ica.mixing(), ica.mixing().rows, ica.mixing().cols,
+           ica.unmixing(), ica.unmixing().rows, ica.unmixing().cols,
+           result);
+  std::cout << "mixing * unmixing = " << std::endl;
+  for (size_t w = 0; w < result.rows; w ++) {
+    for (size_t x = 0; x < result.cols; x ++) {
+      std::cout << "\t" << result[w][x];
+    }
+    std::cout << std::endl;
+  }
+  */
+
 
   return 0;
 }
