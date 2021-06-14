@@ -231,6 +231,50 @@ private:
   }
 };
 
+// this uses channel means, which are also generated for the other algorithm
+cv::Mat_<double> extract_temporal_component(cv::Mat_<double> timechannels, int period)
+{
+  //cv::Mat_<double> periods = timechannels.reshape(0, timechannels.rows * timechannels.cols)().reshape(0, {timechannels.rows / period, period, timechannels.cols});
+  int period_dims[] = {
+    timechannels.rows / period,
+    period,
+    timechannels.cols
+  };
+  if (! timechannels.isContinuous()) {
+    throw std::logic_error("unimplemented: noncontinuous data");
+  }
+  cv::Mat_<double> periods(3, period_dims, timechannels[0]);
+  cv::Mat_<double> waveforms(period, timechannels.cols);
+  //cv::Mat_<double> magnitudes({timechannels.cols});
+  for (int w = 0; w < timechannels.cols; w ++) {
+    // take mean separately for each channel dimension, removing the 1st and 2nd dimensions
+    auto channel_mean = cv::mean(periods({cv::Range::all(), cv::Range::all(), {w,w+1}}));
+    for (int x = 0; x < period; x ++) {
+      // sum along first dimension, removing it, and subtract the calculated mean
+      // makes graph of the component
+      waveforms(x, w) = cv::sum(periods({cv::Range::all(), {x,x+1}, {w,w+1}}) - channel_mean)[0];
+    }
+    // then sum abs along the second dimension, and you have vector of 1hz component magnitude.
+    //magnitudes(w) = cv::sum(cv::abs(waveforms.col(w)));
+  }
+  return waveforms;
+}
+
+template <typename Ica>
+void verify_ica_result(Ica & ica)
+{
+  constexpr double EPSILON = 0.000001;
+  if (cv::sum(cv::abs(ica.centered() * ica.unmixing() - ica.unmixed()))[0] > EPSILON) {
+    throw std::logic_error("centered data doesn't unmix to unmixed data");
+  }
+  if (cv::sum(cv::abs(ica.unmixed() * ica.mixing() - ica.centered()))[0] > EPSILON) {
+    throw std::logic_error("unmixed data doesn't mix to centered data");
+  }
+  if (cv::sum(cv::abs(ica.mixing() * ica.unmixing() - cv::Mat_<double>::eye(ica.mixing().rows, ica.mixing().cols)))[0] > EPSILON) {
+    throw std::logic_error("mixing and unmixing matrices don't multiply to identity");
+  }
+}
+
 int main(int argc, char *const *argv) {
   cv::VideoCapture cap("MOV_20210514_1424307.mp4");
 
@@ -245,69 +289,40 @@ int main(int argc, char *const *argv) {
   libICA ica(cv::Mat_<double>(frames, 3));
   // cisseimpact_FastICA ica(cv::Mat_<double>(frames, 3));
 
-  cv::Mat sequence, frame;
-  std::cerr << "Loading frames ..." << std::endl;
-  for (int framenum = 0; framenum < frames; ++framenum) {
-    cap >> frame;
-    cv::Mat_<double> mean(
-        1, 3, cv::mean(frame).val); // take mean as a 1x3 matrix of channels
-    mean.copyTo(ica.mixed().row(framenum));
-    if (0 == framenum % 16 || framenum + 1 == frames) {
-      std::cerr << "\r" << (framenum + 1) << " / " << frames << ": " << mean
-                << std::flush;
+  for (auto range : {cv::Range(0, frames/32/2), cv::Range(frames/2, frames)}) {
+    cv::Mat sequence, frame;
+    std::cerr << "Loading frames ..." << std::endl;
+    for (int framenum = range.start; framenum < range.end; ++framenum) {
+      cap >> frame;
+      cv::Mat_<double> mean(
+          1, 3, cv::mean(frame).val); // take mean as a 1x3 matrix of channels
+      mean.copyTo(ica.mixed().row(framenum));
+      if (0 == framenum % 16 || framenum + 1 == range.end) {
+        std::cerr << "\r" << (framenum + 1) << " / " << frames << ": " << mean
+                  << std::flush;
+      }
     }
-  }
-  std::cerr << std::endl;
-
-  ica.calculate();
-
-  // std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing()
-  //          << std::endl;
-  // std::cout << "mixing * T(unmixing) = " << ica.mixing() * ica.unmixing().t()
-  //          << std::endl;
-  // std::cout << "T(mixing) * unmixing = " << ica.mixing().t() * ica.unmixing()
-  //          << std::endl;
-  // std::cout << "T(mixing) * T(unmixing) = "
-  //          << ica.mixing().t() * ica.unmixing().t() << std::endl;
-
-  std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
-  std::cout << "center = " << ica.center() << std::endl;
-  std::cout << "mixed_centered, row 1 = " << ica.centered().row(0) << std::endl;
-  // std::cout << "mixed_prewhitened, row 1 = " << ica.prewhitened().row(0) <<
-  // std::endl; std::cout << "mixed_centered * prewhitening, row 1 = "
-  //          << (ica.centered() * ica.prewhitening()).row(0) << std::endl;
-  std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
-  // std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
-  //          << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0) <<
-  //          std::endl;
-  std::cout << "mixed_centered * unmixing, row 1 = "
-            << (ica.centered() * ica.unmixing()).row(0) << std::endl;
-  std::cout << "unmixed * mixing, row 1 = "
-            << (ica.unmixed() * ica.mixing()).row(0) << std::endl;
-  std::cout << "mixed_centered * prewhitening * prewhitened_unmixing, row 1 = "
-            << (ica.centered() * ica.prewhitening() *
-                ica.prewhitened_unmixing())
-                   .row(0)
-            << std::endl;
-  std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
-            << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0)
-            << std::endl;
-  std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing()
-            << std::endl;
-
-  /* the opencv matrix multiplication gets the same results as the libica one
-  libICA::mat result(ica.mixing().rows, ica.unmixing().cols);
-  mat_mult(ica.mixing(), ica.mixing().rows, ica.mixing().cols,
-           ica.unmixing(), ica.unmixing().rows, ica.unmixing().cols,
-           result);
-  std::cout << "mixing * unmixing = " << std::endl;
-  for (size_t w = 0; w < result.rows; w ++) {
-    for (size_t x = 0; x < result.cols; x ++) {
-      std::cout << "\t" << result[w][x];
+    std::cerr << std::endl;
+  
+    ica.calculate();
+    verify_ica_result(ica);
+  
+    std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
+    std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
+    std::cout << "unmixing = " << ica.unmixing() << std::endl;
+    std::cout << "mixing = " << ica.mixing() << std::endl;
+  
+    cv::Mat_<double> source_persec_waveforms = extract_temporal_component(ica.unmixed(), fps);
+    cv::Mat_<double> mixed_persec_waveforms = extract_temporal_component(ica.mixed(), fps);
+    cv::Mat_<double> source_persec_magnitudes(1, 3);
+    cv::Mat_<double> mixed_persec_magnitudes(1, 3);
+    for (size_t w = 0; w < 3; w ++) {
+      source_persec_magnitudes(w) = cv::sum(cv::abs(source_persec_waveforms.col(w)))[0];
+      mixed_persec_magnitudes(w) = cv::sum(cv::abs(mixed_persec_waveforms.col(w)))[0];
     }
-    std::cout << std::endl;
+    std::cout << "60bpm unmixed magnitudes: " << source_persec_magnitudes << std::endl;
+    std::cout << "60bpm mixed magnitudes: " << mixed_persec_magnitudes << std::endl;
   }
-  */
 
   return 0;
 }
