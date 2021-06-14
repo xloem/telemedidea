@@ -286,7 +286,7 @@ int main(int argc, char *const *argv) {
   int frames = cap.get(cv::CAP_PROP_FRAME_COUNT);
   double fps = cap.get(cv::CAP_PROP_FPS);
 
-  for (auto range : {cv::Range(0, frames/32/2), cv::Range(frames/32/2, frames/32)}) {
+  for (auto range : {cv::Range(0, frames/2), cv::Range(frames/2, frames)}) {
     int frames = range.end - range.start;
 
     libICA ica(cv::Mat_<double>(frames, 3));
