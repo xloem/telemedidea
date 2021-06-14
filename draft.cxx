@@ -9,11 +9,14 @@ extern "C" {
 
 class libICA {
 public:
-  // X has a row for each time, and a column for each channel
-  libICA(cv::Mat const &X, unsigned int components = 0)
-      : _X(X), _K(_X.cols, components ? components : _X.cols),
-        _W(_K.cols, _K.cols), _A(_K.cols, _K.cols), _S(_X.rows, _X.cols),
-       _center(1, _X.cols) {}
+  // mixed has a row for each time, and a column for each channel
+  libICA(cv::Mat const &mixed, unsigned int components = 0)
+      : _mixed(mixed),
+        _prewhitening(_mixed.cols, components ? components : _mixed.cols),
+        _prewhitened_unmixing(_prewhitening.cols, _prewhitening.cols),
+        _unmixing(_prewhitening.cols, _prewhitening.cols),
+        _mixing(_prewhitening.cols, _prewhitening.cols),
+        _unmixed(_mixed.rows, _mixed.cols), _center(1, _mixed.cols) {}
   ~libICA() {}
 
   class mat : public cv::Mat_<double> {
@@ -38,41 +41,42 @@ public:
     std::vector<double *> rowptrs;
   };
 
-  mat const &calculate(cv::Mat_<double> const &X = {}) {
-    if (X.rows) {
-      if (X.cols != _X.cols) {
+  mat const &calculate(cv::Mat_<double> const &mixed = {}) {
+    if (mixed.rows) {
+      if (mixed.cols != _mixed.cols) {
         throw std::logic_error("column count differs");
       }
-      _X = X;
-      _S.resize(_X.rows, _X.cols);
+      _mixed = mixed;
+      _unmixed.resize(_mixed.rows, _mixed.cols);
     }
     _center = 0;
-    double inverse_rows = 1.0 / _X.rows;
-    for (size_t col = 0; col < _X.cols; col ++) {
-      _center(col) = (cv::sum(_X.col(col)) * inverse_rows)[0];
+    double inverse_rows = 1.0 / _mixed.rows;
+    for (size_t col = 0; col < _mixed.cols; col++) {
+      _center(col) = (cv::sum(_mixed.col(col)) * inverse_rows)[0];
     }
-    fastICA(_X, _X.rows, _X.cols, _K.cols, _K, _W, _A, _S);
-    return _S;
+    fastICA(_mixed, _mixed.rows, _mixed.cols, _prewhitening.cols, _prewhitening,
+            _prewhitened_unmixing, _mixing, _unmixed);
+    _unmixing = _prewhitening * _prewhitened_unmixing;
+    return _unmixed;
   }
 
-  mat &X() { return _X; }
-  mat const &K() { return _K; }
-  mat const &W() { return _W; }
-  mat const &A() { return _A; }
-  mat const &S() { return _S; }
-  mat &mixed() { return X(); }
-  mat const &unmixed() { return S(); }
+  mat &mixed() { return _mixed; }
+  mat const &unmixed() { return _unmixed; }
   // unmixing and mixing assume the data is centered, i.e. DC offset subtracted
   mat const &center() { return _center; }
-  cv::MatExpr centered() { return X() - cv::Mat_<double>(_X.rows, 1, 1) * center(); }
+  cv::MatExpr centered() {
+    return _mixed - cv::Mat_<double>(_mixed.rows, 1, 1) * center();
+  }
+  mat const &unmixing() { return _unmixing; }
+  mat const &mixing() { return _mixing; }
+
+  mat const &prewhitening() { return _prewhitening; }
   cv::MatExpr prewhitened() { return centered() * prewhitening(); }
-  mat const &prewhitened_unmixing() { return W(); }
-  cv::MatExpr unmixing() { return prewhitening() * prewhitened_unmixing(); }
-  mat const &prewhitening() { return K(); }
-  mat const &mixing() { return A(); }
+  mat const &prewhitened_unmixing() { return _prewhitened_unmixing; }
 
 private:
-  mat _X, _K, _W, _A, _S;
+  mat _mixed, _prewhitening, _prewhitened_unmixing, _unmixing, _mixing,
+      _unmixed;
   // _center is really an extra DC column
   mat _center;
 };
@@ -91,9 +95,9 @@ public:
     return _unmixed;
   }
 
-  cv::Mat_<double> const & mixed() { return _mixed; }
-  cv::Mat_<double> const & unmixed() { return _unmixed; }
-  cv::Mat_<double> const & unmixing() { return _unmixing; }
+  cv::Mat_<double> const &mixed() { return _mixed; }
+  cv::Mat_<double> const &unmixed() { return _unmixed; }
+  cv::Mat_<double> const &unmixing() { return _unmixing; }
 
 private:
   cv::Mat_<double> _mixed, _unmixed, _unmixing, _D, _E;
@@ -239,7 +243,7 @@ int main(int argc, char *const *argv) {
   double fps = cap.get(cv::CAP_PROP_FPS);
 
   libICA ica(cv::Mat_<double>(frames, 3));
-  //cisseimpact_FastICA ica(cv::Mat_<double>(frames, 3));
+  // cisseimpact_FastICA ica(cv::Mat_<double>(frames, 3));
 
   cv::Mat sequence, frame;
   std::cerr << "Loading frames ..." << std::endl;
@@ -257,36 +261,39 @@ int main(int argc, char *const *argv) {
 
   ica.calculate();
 
-  //std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing()
+  // std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing()
   //          << std::endl;
-  //std::cout << "mixing * T(unmixing) = " << ica.mixing() * ica.unmixing().t()
+  // std::cout << "mixing * T(unmixing) = " << ica.mixing() * ica.unmixing().t()
   //          << std::endl;
-  //std::cout << "T(mixing) * unmixing = " << ica.mixing().t() * ica.unmixing()
+  // std::cout << "T(mixing) * unmixing = " << ica.mixing().t() * ica.unmixing()
   //          << std::endl;
-  //std::cout << "T(mixing) * T(unmixing) = "
+  // std::cout << "T(mixing) * T(unmixing) = "
   //          << ica.mixing().t() * ica.unmixing().t() << std::endl;
 
   std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
   std::cout << "center = " << ica.center() << std::endl;
   std::cout << "mixed_centered, row 1 = " << ica.centered().row(0) << std::endl;
-  //std::cout << "mixed_prewhitened, row 1 = " << ica.prewhitened().row(0) << std::endl;
-  //std::cout << "mixed_centered * prewhitening, row 1 = "
+  // std::cout << "mixed_prewhitened, row 1 = " << ica.prewhitened().row(0) <<
+  // std::endl; std::cout << "mixed_centered * prewhitening, row 1 = "
   //          << (ica.centered() * ica.prewhitening()).row(0) << std::endl;
   std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
-  //std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
-  //          << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0) << std::endl;
+  // std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
+  //          << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0) <<
+  //          std::endl;
   std::cout << "mixed_centered * unmixing, row 1 = "
             << (ica.centered() * ica.unmixing()).row(0) << std::endl;
   std::cout << "unmixed * mixing, row 1 = "
             << (ica.unmixed() * ica.mixing()).row(0) << std::endl;
   std::cout << "mixed_centered * prewhitening * prewhitened_unmixing, row 1 = "
-            << (ica.centered() * ica.prewhitening() * ica.prewhitened_unmixing()).row(0)
+            << (ica.centered() * ica.prewhitening() *
+                ica.prewhitened_unmixing())
+                   .row(0)
             << std::endl;
   std::cout << "mixed_prewhitened * prewhitened_unmixing, row 1 = "
-	    << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0)
-	    << std::endl;
-  std::cout << "mixing * unmixing = "
-            << ica.mixing() * ica.unmixing() << std::endl;
+            << (ica.prewhitened() * ica.prewhitened_unmixing()).row(0)
+            << std::endl;
+  std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing()
+            << std::endl;
 
   /* the opencv matrix multiplication gets the same results as the libica one
   libICA::mat result(ica.mixing().rows, ica.unmixing().cols);
