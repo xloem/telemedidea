@@ -30,11 +30,16 @@ public:
     }
   }
 
-  const cv::Mat_<double> X() { return {rows, cols, _X[0]}; }
+  const cv::Mat_<double> X() { return {rows, cols, _X[0]}; oops matrix rows are noncontinuous, see destructor }
   const cv::Mat_<double> K() { return {cols, compc, _K[0]}; }
   const cv::Mat_<double> W() { return {compc, compc, _W[0]}; }
   const cv::Mat_<double> A() { return {compc, compc, _A[0]}; }
   const cv::Mat_<double> S() { return {rows, cols, _S[0]}; }
+  const cv::Mat_<double> mixed() { return X(); }
+  const cv::Mat_<double> unmixed() { return S(); }
+  const cv::Mat_<double> mixing() { return A(); }
+  const cv::Mat_<double> unmixing() { return W(); }
+  const cv::Mat_<double> whitening() { return K(); }
 
   void setX(cv::Mat_<double> const &X) {
     if (X.cols != cols) {
@@ -42,12 +47,14 @@ public:
     }
     if (X.rows > reserved_rows) {
       if (_X) {
+        matrix rows are noncontinuous need our own mat_delete, maybe wrap cv::Mat_<double>
         mat_delete(_X, reserved_rows, cols);
       }
       if (_S) {
         mat_delete(_S, reserved_rows, cols);
       }
       reserved_rows = X.rows;
+      matrix rows are noncontinuous need our own mat_create, maybe wrap cv::Mat_<double>
       _X = mat_create(reserved_rows, cols);
       _S = mat_create(reserved_rows, cols);
     }
@@ -83,19 +90,24 @@ int main(int argc, char *const *argv) {
 
   libICA ica(cv::Mat_<double>(cap.get(cv::CAP_PROP_FRAME_COUNT), 3));
 
-  size_t frames = cap.get(cv::CAP_PROP_FRAME_COUNT);
+  int frames = cap.get(cv::CAP_PROP_FRAME_COUNT);
+  double fps = cap.get(cv::CAP_PROP_FPS);
   cv::Mat sequence, frame;
   std::cerr << "Loading frames ..." << std::endl;
-  for (size_t framenum = 0; framenum < frames; ++framenum) {
+  for (int framenum = 0; framenum < frames; ++framenum) {
     cap >> frame;
-    auto mean = cv::mean(frame);
-    ica.X().row(framenum) = cv::Mat_<double>(mean, false);
-    if (0 == framenum % 16) {
-      std::cerr << "\r" << (framenum * 100) / frames << "%: " << mean
+    cv::Mat_<double> mean(1, 3, cv::mean(frame).val); // take mean as a 1x3 matrix of channels
+    mean.copyTo(ica.X().row(framenum));
+    if (0 == framenum % 16 || framenum + 1 == frames) {
+      std::cerr << "\r" << (framenum+1) << " / " << frames << ": " << mean
                 << std::flush;
     }
   }
   std::cerr << std::endl;
+
+  ica.calculate();
+
+  std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing() << std::endl;
 
   return 0;
 }
