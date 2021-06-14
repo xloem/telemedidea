@@ -55,9 +55,13 @@ public:
   mat const &S() { return _S; }
   mat &mixed() { return X(); }
   mat const &unmixed() { return S(); }
-  mat const &mixing() { return A(); }
+  // in libica, the unmixing matrix assumes prewhitening,
+  // i.e. unmixed = (unmixing * prewhitening.t() * (mixed - center)).t()
+  // where center is the means of the columns of mixed, the subtraction is per-row
   mat const &unmixing() { return W(); }
   mat const &prewhitening() { return K(); }
+  // meanwhile the mixing matrix includes whitening but not centering
+  mat const &mixing() { return A(); }
 
 private:
   mat _X, _K, _W, _A, _S;

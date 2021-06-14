@@ -177,6 +177,8 @@ void fastICA(mat X, int rows, int cols, int compc, mat K, mat W, mat A, mat S)
 	/*
 	 * CENTERING
 	 */
+	// scale is filled with the means of the columns of X
+	// scale is then subtracted from every row of X, in-place
 	mat_center(X, rows, cols, scale);
 
 
@@ -185,11 +187,14 @@ void fastICA(mat X, int rows, int cols, int compc, mat K, mat W, mat A, mat S)
 	 */
 
 	// X <- t(X); V <- X %*% t(X)/rows 
+	// i.e.
+	// V = T(X) * X / rows
 	mat_transpose(X, rows, cols, XT);
 	mat_apply_fx(X, rows, cols, fx_div_c, rows);
 	mat_mult(XT, cols, rows, X, rows, cols, V);
 	
 	// La.svd(V)
+	// breaks V into V * d * T(D), replacing V with its factor
 	svdcmp(V, cols, cols, d, D);  // V = s$u, d = s$d, D = s$v
 
 	// D <- diag(c(1/sqrt(d))
@@ -201,6 +206,8 @@ void fastICA(mat X, int rows, int cols, int compc, mat K, mat W, mat A, mat S)
 	mat_mult(D, cols, cols, TU, cols, cols, V); // K = V 
 
 	// X1 <- K %*% X
+	// so, XT = T(X - scale)
+	// and X1 = V * XT.  K=T(V)
 	mat_mult(V, compc, cols, XT, cols, rows, X1);
 
 	/*
@@ -218,9 +225,12 @@ void fastICA(mat X, int rows, int cols, int compc, mat K, mat W, mat A, mat S)
 	mat_decenter(X, rows, cols, scale);
 
 	// K
+	// The preprocessed X1 = T(K) * T(X - scale)
 	mat_transpose(V, compc, cols, K);
 
 	// w <- a %*% K; S <- w %*% X
+	// _A is the unmixing matrix
+	// S = T((_A * T(K)) * T(X - scale))
 	mat_mult(_A, compc, compc, V, compc, cols, D);	
 	mat_mult(D, compc, cols, XT, cols, rows, X1);
 	// S
