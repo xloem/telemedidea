@@ -11,35 +11,32 @@ class libICA {
 public:
   // X has a row for each time, and a column for each channel
   libICA(cv::Mat const &X, unsigned int components = 0)
-      : _X(X),
-        _K(_X.cols, components ? components : _X.cols),
-        _W(_K.cols, _K.cols),
-        _A(_K.cols, _K.cols),
-        _S(_X.rows, _X.cols) { }
-  ~libICA() { }
+      : _X(X), _K(_X.cols, components ? components : _X.cols),
+        _W(_K.cols, _K.cols), _A(_K.cols, _K.cols), _S(_X.rows, _X.cols) {}
+  ~libICA() {}
 
-  class mat : public cv::Mat_<double>
-  {
+  class mat : public cv::Mat_<double> {
   public:
     using cv::Mat_<double>::Mat_;
 
-    operator double**() {
+    operator double **() {
       if (rowptrs.size() != rows) {
         rowptrs.resize(rows);
         rowptrs[0] = 0;
       }
       if (rowptrs[0] != reinterpret_cast<double *>(ptr(0))) {
-        for (size_t w = 0; w < rows; w ++) {
+        for (size_t w = 0; w < rows; w++) {
           rowptrs[w] = reinterpret_cast<double *>(ptr(w));
         }
       }
       return rowptrs.data();
     }
+
   private:
     std::vector<double *> rowptrs;
   };
 
-  mat const & calculate(cv::Mat_<double> const &X = {}) {
+  mat const &calculate(cv::Mat_<double> const &X = {}) {
     if (X.rows) {
       if (X.cols != _X.cols) {
         throw std::logic_error("column count differs");
@@ -51,19 +48,169 @@ public:
     return _S;
   }
 
-  mat       & X() { return _X; }
-  mat const & K() { return _K; }
-  mat const & W() { return _W; }
-  mat const & A() { return _A; }
-  mat const & S() { return _S; }
-  mat       & mixed() { return X(); }
-  mat const & unmixed() { return S(); }
-  mat const & mixing() { return A(); }
-  mat const & unmixing() { return W(); }
-  mat const & prewhitening() { return K(); }
+  mat &X() { return _X; }
+  mat const &K() { return _K; }
+  mat const &W() { return _W; }
+  mat const &A() { return _A; }
+  mat const &S() { return _S; }
+  mat &mixed() { return X(); }
+  mat const &unmixed() { return S(); }
+  mat const &mixing() { return A(); }
+  mat const &unmixing() { return W(); }
+  mat const &prewhitening() { return K(); }
 
 private:
   mat _X, _K, _W, _A, _S;
+};
+
+class cisseimpact_FastICA {
+public:
+  cisseimpact_FastICA(cv::Mat const &mixed) : _mixed(mixed) {}
+
+  cv::Mat const &calculate(cv::Mat const &mixed = {}) {
+    if (mixed.rows) {
+      _mixed = mixed;
+    }
+    remean(_mixed, _mixed);
+    whiten(_mixed, _mixed, _E, _D);
+    runICA(_mixed, _unmixed, _unmixing, _mixed.cols);
+    return _unmixed;
+  }
+
+  cv::Mat_<double> const & mixed() { return _mixed; }
+  cv::Mat_<double> const & unmixed() { return _unmixed; }
+  cv::Mat_<double> const & unmixing() { return _unmixing; }
+
+private:
+  cv::Mat_<double> _mixed, _unmixed, _unmixing, _D, _E;
+
+  static void remean(cv::Mat input, cv::Mat &output) {
+    cv::Mat mean;
+    cv::reduce(input, mean, 0, CV_REDUCE_AVG);
+    cv::Mat temp = cv::Mat::ones(input.rows, 1, CV_64FC1);
+    output = input - temp * mean;
+  }
+  static void remean(cv::Mat &input, cv::Mat &output, cv::Mat &mean) {
+    cv::reduce(input, mean, 0, CV_REDUCE_AVG);
+    cv::Mat temp = cv::Mat::ones(input.rows, 1, CV_64FC1);
+    output = input - temp * mean;
+  }
+  static void whiten(cv::Mat input, cv::Mat &output) {
+    // need to be remean before whiten
+
+    const int N = input.rows; // num of data
+    const int M = input.cols; // dimention
+
+    cv::Mat cov;
+    cv::Mat D;
+    cv::Mat E;
+    cv::Mat temp = cv::Mat::eye(M, M, CV_64FC1);
+    cv::Mat temp2;
+
+    cov = input.t() * input / N;
+    cv::eigen(cov, D, E);
+    cv::sqrt(D, D);
+
+    for (int i = 0; i < M; i++) {
+      temp.at<double>(i, i) = D.at<double>(i, 0);
+    }
+
+    temp2 = E * temp.inv() * E.t() * input.t();
+
+    output = temp2.t();
+  }
+
+  static void whiten(cv::Mat input, cv::Mat &output, cv::Mat &E, cv::Mat &D) {
+    // need to be remean before whiten
+
+    const int N = input.rows; // num of data
+    const int M = input.cols; // dimention
+
+    cv::Mat cov;
+    cv::Mat D2;
+    cv::Mat temp = cv::Mat::eye(M, M, CV_64FC1);
+    cv::Mat temp2;
+    cv::Mat E2;
+
+    cov = input.t() * input / N;
+    cv::eigen(cov, D, E2);
+    cv::sqrt(D, D2);
+    E = E2.t();
+
+    for (int i = 0; i < M; i++) {
+      temp.at<double>(i, i) = D2.at<double>(i, 0);
+    }
+
+    temp2 = E2 * temp.inv() * E2.t() * input.t();
+
+    output = temp2.t();
+  }
+
+  static void
+  runICA(cv::Mat input, cv::Mat &output, cv::Mat &W,
+         int snum) // output =Independent components matrix,W=Un-mixing matrix
+  {
+    const int M = input.rows; // number of data
+    const int N = input.cols; // data dimension
+
+    const int maxIterations = 1000;
+    const double epsilon = 0.0001;
+
+    if (N < snum) {
+      snum = M;
+      printf(" Can't estimate more independent components than dimension of "
+             "data ");
+    }
+
+    cv::Mat R(snum, N, CV_64FC1);
+    cv::randn(R, cv::Scalar(0), cv::Scalar(1));
+    cv::Mat ONE = cv::Mat::ones(M, 1, CV_64FC1);
+
+    for (int i = 0; i < snum; ++i) {
+      int iteration = 0;
+      cv::Mat P(1, N, CV_64FC1);
+      R.row(i).copyTo(P.row(0));
+
+      while (iteration <= maxIterations) {
+        iteration++;
+        cv::Mat P2;
+        P.copyTo(P2);
+        cv::Mat temp1, temp2, temp3, temp4;
+        temp1 = P * input.t();
+        cv::pow(temp1, 3, temp2);
+        cv::pow(temp1, 2, temp3);
+        temp3 = 3 * temp3;
+        temp4 = temp3 * ONE;
+        P = temp2 * input / M - temp4 * P / M;
+
+        if (i != 0) {
+          cv::Mat temp5;
+          cv::Mat wj(1, N, CV_64FC1);
+          cv::Mat temp6 = cv::Mat::zeros(1, N, CV_64FC1);
+
+          for (int j = 0; j < i; ++j) {
+            R.row(j).copyTo(wj.row(0));
+            temp5 = P * wj.t() * wj;
+            temp6 = temp6 + temp5;
+          }
+          P = P - temp6;
+        }
+        double Pnorm = cv::norm(P, 4);
+        P = P / Pnorm;
+
+        double j1 = cv::norm(P - P2, 4);
+        double j2 = cv::norm(P + P2, 4);
+        if (j1 < epsilon || j2 < epsilon) {
+          P.row(0).copyTo(R.row(i));
+          break;
+        } else if (iteration == maxIterations) {
+          P.row(0).copyTo(R.row(i));
+        }
+      }
+    }
+    output = R * input.t();
+    W = R;
+  }
 };
 
 int main(int argc, char *const *argv) {
@@ -74,18 +221,21 @@ int main(int argc, char *const *argv) {
     return -1;
   }
 
-  libICA ica(cv::Mat_<double>(cap.get(cv::CAP_PROP_FRAME_COUNT), 3));
-
   int frames = cap.get(cv::CAP_PROP_FRAME_COUNT);
   double fps = cap.get(cv::CAP_PROP_FPS);
+
+  //libICA ica(cv::Mat_<double>(frames, 3));
+  cisseimpact_FastICA ica(cv::Mat_<double>(frames, 3));
+
   cv::Mat sequence, frame;
   std::cerr << "Loading frames ..." << std::endl;
   for (int framenum = 0; framenum < frames; ++framenum) {
     cap >> frame;
-    cv::Mat_<double> mean(1, 3, cv::mean(frame).val); // take mean as a 1x3 matrix of channels
-    mean.copyTo(ica.X().row(framenum));
+    cv::Mat_<double> mean(
+        1, 3, cv::mean(frame).val); // take mean as a 1x3 matrix of channels
+    mean.copyTo(ica.mixed().row(framenum));
     if (0 == framenum % 16 || framenum + 1 == frames) {
-      std::cerr << "\r" << (framenum+1) << " / " << frames << ": " << mean
+      std::cerr << "\r" << (framenum + 1) << " / " << frames << ": " << mean
                 << std::flush;
     }
   }
@@ -93,18 +243,26 @@ int main(int argc, char *const *argv) {
 
   ica.calculate();
 
-
-  std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing() << std::endl;
-  std::cout << "mixing * T(unmixing) = " << ica.mixing() * ica.unmixing().t() << std::endl;
-  std::cout << "T(mixing) * unmixing = " << ica.mixing().t() * ica.unmixing() << std::endl;
-  std::cout << "T(mixing) * T(unmixing) = " << ica.mixing().t() * ica.unmixing().t() << std::endl;
+  //std::cout << "mixing * unmixing = " << ica.mixing() * ica.unmixing()
+  //          << std::endl;
+  //std::cout << "mixing * T(unmixing) = " << ica.mixing() * ica.unmixing().t()
+  //          << std::endl;
+  //std::cout << "T(mixing) * unmixing = " << ica.mixing().t() * ica.unmixing()
+  //          << std::endl;
+  //std::cout << "T(mixing) * T(unmixing) = "
+  //          << ica.mixing().t() * ica.unmixing().t() << std::endl;
 
   std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
-  std::cout << "mixed * prewhitening, row 1 = " << (ica.mixed() * ica.prewhitening()).row(0) << std::endl;
+  //std::cout << "mixed * prewhitening, row 1 = "
+  //          << (ica.mixed() * ica.prewhitening()).row(0) << std::endl;
   std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
-  std::cout << "mixed * unmixing, row 1 = " << (ica.mixed() * ica.unmixing()).row(0) << std::endl;
-  std::cout << "unmixed * mixing, row 1 = " << (ica.unmixed() * ica.mixing()).row(0) << std::endl;
-  std::cout << "mixed * prewhitening * unmixing, row 1 = " << (ica.mixed() * ica.prewhitening() * ica.unmixing()).row(0) << std::endl;
+  std::cout << "mixed * unmixing, row 1 = "
+            << (ica.mixed() * ica.unmixing()).row(0) << std::endl;
+  //std::cout << "unmixed * mixing, row 1 = "
+  //          << (ica.unmixed() * ica.mixing()).row(0) << std::endl;
+  //std::cout << "mixed * prewhitening * unmixing, row 1 = "
+  //          << (ica.mixed() * ica.prewhitening() * ica.unmixing()).row(0)
+  //          << std::endl;
 
   /* the opencv matrix multiplication gets the same results as the libica one
   libICA::mat result(ica.mixing().rows, ica.unmixing().cols);
@@ -119,7 +277,6 @@ int main(int argc, char *const *argv) {
     std::cout << std::endl;
   }
   */
-
 
   return 0;
 }

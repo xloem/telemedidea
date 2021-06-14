@@ -1,3 +1,6 @@
 [submodule "opencv"]
 	path = opencv
 	url = https://github.com/opencv/opencv
+[submodule "FastICA"]
+	path = FastICA
+	url = https://github.com/cisseimpact/FastICA.git
