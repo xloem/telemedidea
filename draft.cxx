@@ -286,18 +286,20 @@ int main(int argc, char *const *argv) {
   int frames = cap.get(cv::CAP_PROP_FRAME_COUNT);
   double fps = cap.get(cv::CAP_PROP_FPS);
 
-  libICA ica(cv::Mat_<double>(frames, 3));
-  // cisseimpact_FastICA ica(cv::Mat_<double>(frames, 3));
+  for (auto range : {cv::Range(0, frames/32/2), cv::Range(frames/32/2, frames/32)}) {
+    int frames = range.end - range.start;
 
-  for (auto range : {cv::Range(0, frames/32/2), cv::Range(frames/2, frames)}) {
+    libICA ica(cv::Mat_<double>(frames, 3));
+    // cisseimpact_FastICA ica(cv::Mat_<double>(frames, 3));
+
     cv::Mat sequence, frame;
     std::cerr << "Loading frames ..." << std::endl;
-    for (int framenum = range.start; framenum < range.end; ++framenum) {
+    for (int framenum = 0; framenum < frames; ++framenum) {
       cap >> frame;
       cv::Mat_<double> mean(
           1, 3, cv::mean(frame).val); // take mean as a 1x3 matrix of channels
       mean.copyTo(ica.mixed().row(framenum));
-      if (0 == framenum % 16 || framenum + 1 == range.end) {
+      if (0 == framenum % 16 || framenum + 1 == frames) {
         std::cerr << "\r" << (framenum + 1) << " / " << frames << ": " << mean
                   << std::flush;
       }
