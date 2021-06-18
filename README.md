@@ -23,3 +23,7 @@ By understanding how ICA works, we can optimize it for
 a low-end device.  We could make an app that lets the user
 extract visual signals from almost anything, but notably
 the human heartbeat.
+
+--
+I am guessing that the present reason the test fails is because the averaging
+window is too large, and the output resolution too low, to see the signal.

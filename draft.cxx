@@ -324,6 +324,28 @@ int main(int argc, char *const *argv) {
     }
     std::cout << "60bpm unmixed magnitudes: " << source_persec_magnitudes << std::endl;
     std::cout << "60bpm mixed magnitudes: " << mixed_persec_magnitudes << std::endl;
+
+    for (size_t w = 0; w < 3; w ++) {
+      double scale = ica.unmixed().rows / 80;
+      double chan_min, chan_max;
+      auto chan = ica.unmixed().col(w);
+      cv::minMaxLoc(chan, &chan_min, &chan_max);
+      for (size_t step = 0; step < 6; step ++) {
+        double low_threshold = (step / 6.0) * (chan_max - chan_min) + chan_min;
+        double high_threshold = ((step+1) / 6.0) * (chan_max - chan_min) + chan_min;
+        for (size_t x = 0; x < 80; x ++) {
+          auto values = chan({cv::Range(x * scale, (x + 1) * scale), cv::Range(0,1)});
+          double local_min, local_max;
+          cv::minMaxLoc(values, &local_min, &local_max);
+          if (local_min <= high_threshold && local_max >= low_threshold) {
+            std::cout << "*";
+          } else {
+            std::cout << " ";
+          }
+        }
+        std::cout << std::endl;
+      }
+    }
   }
 
   return 0;
