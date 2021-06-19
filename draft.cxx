@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include <opencv2/highgui.hpp>
 #include <opencv2/videoio.hpp>
 
 extern "C" {
@@ -276,6 +277,7 @@ void verify_ica_result(Ica & ica)
 }
 
 int main(int argc, char *const *argv) {
+  cv::namedWindow("frames", cv::WINDOW_NORMAL | cv::WINDOW_GUI_EXPANDED);
   cv::VideoCapture cap("MOV_20210514_1424307.mp4");
 
   if (!cap.isOpened()) {
@@ -310,8 +312,7 @@ int main(int argc, char *const *argv) {
     verify_ica_result(ica);
   
     std::cout << "unmixed, row 1 = " << ica.unmixed().row(0) << std::endl;
-    std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl;
-    std::cout << "unmixing = " << ica.unmixing() << std::endl;
+    std::cout << "mixed, row 1 = " << ica.mixed().row(0) << std::endl; std::cout << "unmixing = " << ica.unmixing() << std::endl;
     std::cout << "mixing = " << ica.mixing() << std::endl;
   
     cv::Mat_<double> source_persec_waveforms = extract_temporal_component(ica.unmixed(), fps);
@@ -347,6 +348,7 @@ int main(int argc, char *const *argv) {
       }
     }
   }
+  cv::destroyAllWindows();
 
   return 0;
 }

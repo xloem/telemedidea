@@ -3,11 +3,15 @@ cmake_minimum_required(VERSION 3.10)
 # setting these by default lets a default build succeed in termux
 set(BUILD_ANDROID_PROJECTS OFF CACHE BOOL "Build Android projects providing .apk files")
 set(WITH_CPUFEATURES OFF CACHE BOOL "Use cpufeatures Android library")
+# Qt can run headless using `export QT_QPA_PLATFORM=vnc`
 set(WITH_QT ON CACHE BOOL "Build with Qt Backend support")
 add_subdirectory(opencv)
 include_directories(
 	${CMAKE_BINARY_DIR}
 	opencv/modules/core/include
+	opencv/modules/imgcodecs/include
+	opencv/modules/imgproc/include
+	opencv/modules/highgui/include
 	opencv/modules/videoio/include
 )
 
@@ -24,4 +28,4 @@ target_include_directories(ICA PUBLIC
 project(telemedidea)
 
 add_executable(draft draft.cxx)
-target_link_libraries(draft opencv_videoio ICA)
+target_link_libraries(draft opencv_videoio opencv_highgui ICA)
